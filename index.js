@@ -6,6 +6,10 @@ const {Storage} = require('@google-cloud/storage');
 exports.index = (eventData, context, callback) => {
   console.log({eventData})
   const storage = new Storage();
+
+  // FTP client touches an empty file before finally uploading
+  // the rest of the data.
+  if (eventData.size == 0) { return callback() }
   
   const bucket = storage.bucket(eventData.bucket);
   const file = bucket.file(eventData.name);
