@@ -29,10 +29,14 @@
     }
     .camera-status .relative-ts {
       font-size: 36px;
+      float: right;
     }
     .camera-status .delay {
+      font-size: 28px;
+      margin: 0 50px 0 0;
+    }
+    .camera-status .delay .block .seconds {
       font-style: italic;
-      font-size: 30px;
     }
     .camera-status .drawer {
       display: none;
@@ -87,13 +91,15 @@
   </style>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.1/jquery.min.js"></script>
   <script type="text/javascript">
-    function getRelativeTime(time1, time2) {
+    function getRelativeTime(time1, time2, options = {}) {
       const rtf = new Intl.RelativeTimeFormat('en', { style: 'narrow' });
       const timestamp = time1.getTime() / 1000;
       const diff = Math.floor(time2.getTime() / 1000 - timestamp);
       const round = (timestamp > diff) ? Math.ceil : Math.floor;
       let relativeTimestamp;
-      if (Math.abs(diff) < 60) {
+      if (options?.precise && Math.abs(diff) < 60 * 6) {
+        relativeTimestamp = rtf.format(diff, 'second');
+      } else if (Math.abs(diff) < 60) {
         relativeTimestamp = rtf.format(diff, 'second');
       } else if (Math.abs(diff) < 60 * 60) {
         relativeTimestamp = rtf.format(round(diff/60), 'minute');
@@ -128,19 +134,21 @@
       data.cameraSummaries.forEach((summary) => {
         console.log({summary})
         const relativeTimestamp = getRelativeTime(new Date(), new Date(summary.latest.timestamp))
-        const processingDelay = getRelativeTime(new Date(summary.latest.asset_created), new Date(summary.latest.timestamp))
+        const ftpUpload = getRelativeTime(new Date(summary.latest.ftp_upload_started), new Date(summary.latest.ftp_upload_finished), {precise: true})
+        const lrUpload = getRelativeTime(new Date(summary.latest.ftp_upload_finished), new Date(summary.latest.timestamp), {precise: true})
 
         const cameraStatus = $(`
           <div class="camera-status">
             <span class="upload-count">${summary.count} photos</span>
             <h3>${summary.latest.camera_model}</h3>
             <p>
-              <span class="name">${summary.latest.name}</span>
               <span class="relative-ts">${relativeTimestamp}</span>
+              <span class="name">${summary.latest.name}</span>
             </p>
-            <p class="delay">
-              Processing delay <span class="delay">${processingDelay.replace('in ', '')}</span>
-            </p>
+            <div class="delay">
+              <div class="block">FTP <span class="seconds">${ftpUpload.replace('in ', '')}</span></div>
+              <div class="block">LR <span class="seconds">${lrUpload.replace('in ', '')}</span></div>
+            </div>
             <div class="drawer">
               <img src="data:image/jpeg;base64,${summary.latest.thumbnail}" />
             </div>

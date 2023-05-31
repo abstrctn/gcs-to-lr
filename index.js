@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const path = require("path");
 const {Storage} = require('@google-cloud/storage');
 const ExifReader = require('exifreader');
+const {Datastore} = require('@google-cloud/datastore');
 
 const {
   tokenExpired,
@@ -15,7 +16,8 @@ const {
   getAdobeApiStats,
   getCameraSummaries,
 } = require('./helpers.js');
-const { eventNames } = require('process');
+
+const datastore = new Datastore();
 
 functions.http('statusData', (req, res) => {
   if (req.method === 'OPTIONS') {
@@ -57,22 +59,33 @@ exports.index = async (eventData, context, callback) => {
   console.log({eventData})
   const storage = new Storage();
 
-  // FTP client touches an empty file before finally uploading
-  // the rest of the data.
-  if (eventData.size == 0) { return callback() }
-  
   const bucket = storage.bucket(eventData.bucket);
-  const file = bucket.file(eventData.name);
-  const file_name = path.basename(eventData.name);
+  const file_path = eventData.name;
+  const file = bucket.file(file_path);
+  const file_name = path.basename(file_path);
 
   const uuid = crypto.randomUUID().replaceAll("-", "");
   console.log({uuid});
   const readStream = file.createReadStream();
-
-  // only a1 files seem to have metadata at front of file
-  // const xmpReadOptions = {};
-  // if (eventData.name.indexOf('a1/') == 0) xmpReadOptions = {start: 0, end: 128 * 1024};
   const xmpReadStream = file.createReadStream({start: 0, end: 128 * 1024});
+
+  // FTP client touches an empty file before finally uploading
+  // the rest of the data.
+  if (eventData.size == 0) {
+    // finalized events are created for folders too, so scope to only the file create
+    if (file_name.indexOf(".") > 0) {
+      await writeToDatastore([{
+        kind: 'asset',
+        name: file_path,
+        data: {
+          asset_id: uuid,
+          name: file_name,
+          ftp_upload_started: new Date(eventData.metadata.gcsfuse_mtime),
+        }
+      }]);
+    }
+    return callback();
+  }
 
   let secrets = await getSecrets(['ADOBE_ACCESS_TOKEN', 'ADOBE_API_KEY']);
 
@@ -169,30 +182,45 @@ exports.index = async (eventData, context, callback) => {
             xmpReadStream
               .on('data', (chunk) => chunks.push(chunk))
               .on('end', () => {
-                const buffer = Buffer.concat(chunks);
-                const exif = ExifReader.load(buffer);
-                writeToDatastore([{
-                  kind: 'asset',
-                  excludeFromIndexes: [
-                    'thumbnail',
-                  ],
-                  data: {
-                    asset_id: uuid,
-                    name: file_name,
-                    camera_make: exif.Make.description,
-                    camera_model: exif.Model.description,
-                    camera_serial: exif.BodySerialNumber?.description,
-                    asset_created: new Date(exif.DateTime.description.replace(':', '-').replace(':', '-') + getTzOffset()),
-                    thumbnail: Buffer.from(exif.Thumbnail.image).toString("base64"),
-                  }
-                }]);
-                callback();
-              })
+                console.log(1)
+                datastore.get(datastore.key(['asset', file_path]), async (err, entity) => {
+                  console.log({err, entity})
+                  const buffer = Buffer.concat(chunks);
+                  const exif = ExifReader.load(buffer);
+                  await writeToDatastore([{
+                    kind: 'asset',
+                    name: file_path,
+                    excludeFromIndexes: [
+                      'thumbnail',
+                    ],
+                    data: {
+                      asset_id: uuid,
+                      name: file_name,
+                      camera_make: exif.Make.description,
+                      camera_model: exif.Model.description,
+                      camera_serial: exif.BodySerialNumber?.description,
+                      asset_created: new Date(exif.DateTime.description.replace(':', '-').replace(':', '-') + getTzOffset()),
+                      thumbnail: Buffer.from(exif.Thumbnail.image).toString("base64"),
+                      ftp_upload_started: entity?.ftp_upload_started,
+                      ftp_upload_finished: new Date(eventData.metadata.gcsfuse_mtime),
+                    }
+                  }]);
+                  callback();
+                });
+              });
           });
         }
       );
       console.log('uploading...');
+      req_upload.on('error', (e) => {
+        console.log('error uploading');
+        console.error(e);
+      });
       readStream.pipe(req_upload)
+        .on('error', (e) => {
+          console.log('error piping');
+          console.error(e);
+        })
         .on('finish', () => {
           console.log('finish upload')
           req_upload.end()
