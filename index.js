@@ -15,6 +15,7 @@ const {
   getTzOffset,
   getAdobeApiStats,
   getCameraSummaries,
+  fetchTokens,
 } = require('./helpers.js');
 
 const datastore = new Datastore();
@@ -35,14 +36,18 @@ functions.http('statusData', (req, res) => {
 
     getSecrets(['ADOBE_ACCESS_TOKEN', 'ADOBE_CLIENT_SECRET', 'ADOBE_REFRESH_TOKEN'])
       .then((secrets) => {
-        const jwt = parseJwt(secrets.ADOBE_ACCESS_TOKEN);
-        const expires_at = parseInt(jwt.created_at) + parseInt(jwt.expires_in);
+        const access_jwt = parseJwt(secrets.ADOBE_ACCESS_TOKEN),
+              refresh_jwt = parseJwt(secrets.ADOBE_REFRESH_TOKEN);
+        const access_expires_at = parseInt(access_jwt.created_at) + parseInt(access_jwt.expires_in),
+              refresh_expires_at = parseInt(refresh_jwt.created_at) + parseInt(refresh_jwt.expires_in);
         Promise.all([apiStatsPromise, cameraSummariesPromise]).then((results) => {
           const [adobeApiStats, cameraSummaries] = results;
 
           res.send(JSON.stringify({
-            expires_in: expires_at - new Date().getTime(),
-            expired: tokenExpired(secrets.ADOBE_ACCESS_TOKEN),
+            access_expires_in: access_expires_at - new Date().getTime(),
+            refresh_expires_in: refresh_expires_at - new Date().getTime(),
+            access_expired: tokenExpired(secrets.ADOBE_ACCESS_TOKEN),
+            refresh_expired: tokenExpired(secrets.ADOBE_REFRESH_TOKEN),
             adobeApiStats,
             cameraSummaries,
           }));
@@ -52,7 +57,15 @@ functions.http('statusData', (req, res) => {
 });
 
 functions.http('status', (req, res) => {
-  res.sendFile('/workspace/status.html');
+  // Check if code parameter is specified, at which point:
+  // * Fetch a refresh token
+  if (req.query && req.query.code) {
+    fetchTokens(req.query.code).then((id_token) => {
+      res.redirect(`https://status.strickles.photos?id_token=${id_token}`);
+    });
+  } else {
+    res.sendFile('/workspace/status.html');
+  }
 });
 
 exports.index = async (eventData, context, callback) => {
@@ -91,6 +104,11 @@ exports.index = async (eventData, context, callback) => {
 
   // Check for expired access token
   if (tokenExpired(secrets.ADOBE_ACCESS_TOKEN)) {
+    if (tokenExpired(secrets.ADOBE_REFRESH_TOKEN)) {
+      console.log('refresh token expired, bailing.');
+      // TODO: Mark as failure
+      return callback();
+    }
     console.log('token expired, refreshing...')
     secrets.ADOBE_ACCESS_TOKEN = await refreshCredentials(secrets);
     console.log('token refreshed')
@@ -182,7 +200,6 @@ exports.index = async (eventData, context, callback) => {
             xmpReadStream
               .on('data', (chunk) => chunks.push(chunk))
               .on('end', () => {
-                console.log(1)
                 datastore.get(datastore.key(['asset', file_path]), async (err, entity) => {
                   console.log({err, entity})
                   const buffer = Buffer.concat(chunks);

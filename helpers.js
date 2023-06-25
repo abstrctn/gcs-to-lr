@@ -42,6 +42,63 @@ exports.setSecrets = function(secrets) {
   })
 }
 
+exports.fetchTokens = function (code) {
+  return new Promise((resolve, reject) => {
+    exports.getSecrets(['ADOBE_REFRESH_TOKEN', 'ADOBE_CLIENT_SECRET'])
+      .then((secrets) => {
+        const request_body = `code=${code}&grant_type=authorization_code`;
+        const request = https.request(
+          {
+            protocol: 'https:',
+            hostname: 'ims-na1.adobelogin.com',
+            port: 443,
+            path: `/ims/token/v3`,
+            method: 'POST',
+            headers: {
+              'Authorization': `Basic ${
+                Buffer.from([
+                  process.env.ADOBE_CLIENT_ID,
+                  secrets.ADOBE_CLIENT_SECRET
+                ].join(':'))
+                .toString('base64')
+              }`,
+              'Content-Length': request_body.length,
+              'Content-Type': 'application/x-www-form-urlencoded'
+            }
+          },
+          async function(response) {
+            let responseData = '';
+            response.on('data', (chunk) => {
+              responseData += chunk;
+            })
+            response.on('end', () => {
+              exports.writeToDatastore([{
+                kind: 'api-call',
+                data: {
+                  endpoint: 'authorizationCode',
+                  catalog: process.env.ADOBE_CATALOG_ID,
+                  responseStatus: response.statusCode,
+                }
+              }]);
+              const {access_token, refresh_token, id_token} = JSON.parse(responseData);
+              exports.setSecrets({
+                ADOBE_ACCESS_TOKEN: access_token,
+                ADOBE_REFRESH_TOKEN: refresh_token,
+              }).then(() => {
+                resolve(id_token);
+              });
+            })
+          }
+        )
+        request.on('error', (err) => {
+          reject(err);
+        })
+        request.write(request_body)
+        request.end()
+      });
+  });
+}
+
 exports.refreshCredentials = function() {
   return new Promise((resolve, reject) => {
     exports.getSecrets(['ADOBE_REFRESH_TOKEN', 'ADOBE_CLIENT_SECRET'])

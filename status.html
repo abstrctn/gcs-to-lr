@@ -5,8 +5,22 @@
     body {
       font-family: sans-serif;
     }
-    .hide {
+    .hidden {
       display: none !important;
+    }
+    .authorization {
+      margin: 20px 40px;
+      padding: 20px 0;
+      border-top: 1px solid #888;
+    }
+    .authorization a.authorize-link {
+      border: 1px solid #888;
+      border-radius: 3px;
+      padding: 6px;
+      font-size: 20px;
+      text-decoration: none;
+      color: black;
+      float: right;
     }
     .camera-status {
       margin: 20px 10px 20px 10px;
@@ -52,10 +66,15 @@
       padding: 30px 40px;
       font-size: 36px;
     }
-    #token-expiration {
+    .token-expiration {
+      background: green;
+      border-radius: 3px;
+      padding: 6px;
+      font-size: 20px;
+      color: white;
     }
-    #token-expiration.expired {
-      color: red;
+    .token-expiration.expired {
+      background: red;
     }
     #api-error-count {
       color: red;
@@ -114,21 +133,29 @@
     (async function() {
       const response = await fetch("https://gcs-to-lr-status-data-qd3c2iq2ga-uk.a.run.app");
       const data = await response.json();
-      $('.lds-dual-ring').addClass('hide');
+      $('.lds-dual-ring').addClass('hidden');
       console.log(data)
 
-      const relative_expiration = getRelativeTime(new Date(), new Date(new Date().getTime() + data.expires_in));
-      if (data.expired) {
-        $('#token-expiration').html(`Token expired ${relative_expiration}`).addClass('expired');
+      const access_relative_expiration = getRelativeTime(new Date(), new Date(new Date().getTime() + data.access_expires_in)).replace('in ', '').replace(' ago', '');
+      const refresh_relative_expiration = getRelativeTime(new Date(), new Date(new Date().getTime() + data.refresh_expires_in)).replace('in ', '').replace(' ago', '');
+
+      if (data.access_expired) {
+        $('#access-token-expiration .value').html(access_relative_expiration).parent().addClass('expired');
       } else {
-        $('#token-expiration').html(`Token expires ${relative_expiration}`).removeClass('expired');
+        $('#access-token-expiration .value').html(access_relative_expiration).parent().removeClass('expired');
+      }
+
+      if (data.refresh_expired) {
+        $('#refresh-token-expiration .value').html(refresh_relative_expiration).parent().addClass('expired');
+      } else {
+        $('#refresh-token-expiration .value').html(refresh_relative_expiration).parent().removeClass('expired');
       }
 
       $('#api-error-count').html(data.adobeApiStats.failures + ' API errors');
       if (data.adobeApiStats.failures > 0) {
-        $('#api-error-count').removeClass('hide');
+        $('#api-error-count').removeClass('hidden');
       } else {
-        $('#api-error-count').addClass('hide');
+        $('#api-error-count').addClass('hidden');
       }
       
       data.cameraSummaries.forEach((summary) => {
@@ -169,8 +196,12 @@
   <div class="lds-dual-ring"></div>
   <div id="camera-statuses"></div>
   <div id="api-status">
-    <span id="api-error-count" class="hide"></span>
-    <span id="token-expiration"></span>
+    <span id="api-error-count" class="hidden"></span>
+  </div>
+  <div class="authorization">
+    <a class="authorize-link" href="https://ims-na1.adobelogin.com/ims/authorize/v2?client_id=441b4e2d38004854b98662f66a06d897&redirect_uri=https://status.strickles.photos&scope=openid,lr_partner_apis,lr_partner_rendition_apis,offline_access&response_type=code">Authorize</a>
+    <span id="access-token-expiration" class="token-expiration">Access <span class="value"></span></span>
+    <span id="refresh-token-expiration" class="token-expiration">Refresh <span class="value"></span></span>
   </div>
 </body>
 </html>
