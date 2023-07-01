@@ -1,7 +1,9 @@
 const {SecretManagerServiceClient} = require('@google-cloud/secret-manager');
 const {Datastore} = require('@google-cloud/datastore');
 const {AggregateField} = require('@google-cloud/datastore/build/src/aggregate');
+
 const https = require("https");
+const ExifReader = require('exifreader');
 
 const secretManagerClient = new SecretManagerServiceClient();
 const datastore = new Datastore();
@@ -156,6 +158,8 @@ exports.refreshCredentials = function() {
     })
 }
 
+// Status Page
+
 exports.getAdobeApiStats = async function() {
   const failureQuery = datastore.createQuery('api-call')
     .select('__key__')
@@ -197,6 +201,8 @@ exports.getCameraSummaries = async function() {
   return summaries;
 }
 
+// Stats
+
 exports.writeToDatastore = function(entries) {
   return new Promise((resolve, reject) => {
     const promises = entries.map((entry) => {
@@ -215,6 +221,22 @@ exports.writeToDatastore = function(entries) {
       .then(resolve);
   });
 }
+
+// Exif helpers
+exports.getExifFromReadStream = function(readStream) {
+  return new Promise((resolve, reject) => {
+    let chunks = [];
+    readStream
+      .on('data', (chunk) => chunks.push(chunk))
+      .on('end', () => {
+        const buffer = Buffer.concat(chunks);
+        const exif = ExifReader.load(buffer);
+        resolve(exif);
+      });  
+  });
+}
+
+// JWT helpers
 
 // https://stackoverflow.com/a/38552302
 exports.parseJwt = function(token) {
