@@ -14,6 +14,7 @@ const {
   getAdobeApiStats,
   getCameraSummaries,
   fetchTokens,
+  getExifFromReadStream,
 } = require('./helpers.js');
 
 const {
@@ -94,7 +95,7 @@ exports.index = async (eventData, context, callback) => {
         data: {
           asset_id: uuid,
           name: file_name,
-          ftp_upload_started: new Date(eventData.metadata.gcsfuse_mtime),
+          ftp_upload_started: new Date(eventData.metadata?.gcsfuse_mtime),
         }
       }]);
     }
@@ -106,7 +107,7 @@ exports.index = async (eventData, context, callback) => {
   const readStream = file.createReadStream();
   const xmpReadStream = file.createReadStream({start: 0, end: 128 * 1024});  
 
-  let secrets = await getSecrets(['ADOBE_ACCESS_TOKEN', 'ADOBE_API_KEY']);
+  let secrets = await getSecrets(['ADOBE_ACCESS_TOKEN', 'ADOBE_REFRESH_TOKEN', 'ADOBE_API_KEY']);
 
   // Refresh access token if expired
   if (tokenExpired(secrets.ADOBE_ACCESS_TOKEN)) {
@@ -147,7 +148,7 @@ exports.index = async (eventData, context, callback) => {
   });
 
   await createAssetOriginal({
-    // (hacky) overload body as a config object
+    // (hacky) overload body as a config object to support piping streams
     body: {
       stream: readStream,
       length: eventData.size,
@@ -174,13 +175,13 @@ exports.index = async (eventData, context, callback) => {
       data: {
         asset_id: uuid,
         name: file_name,
-        camera_make: exif.Make.description,
-        camera_model: exif.Model.description,
+        camera_make: exif.Make?.description,
+        camera_model: exif.Model?.description,
         camera_serial: exif.BodySerialNumber?.description,
-        asset_created: new Date(exif.DateTime.description.replace(':', '-').replace(':', '-') + getTzOffset()),
-        thumbnail: Buffer.from(exif.Thumbnail.image).toString("base64"),
+        asset_created: new Date(exif.DateTime?.description.replace(':', '-').replace(':', '-') + getTzOffset()),
+        thumbnail: exif.Thumbnail?.image ? Buffer.from(exif.Thumbnail?.image).toString("base64") : null,
         ftp_upload_started: entity?.ftp_upload_started,
-        ftp_upload_finished: new Date(eventData.metadata.gcsfuse_mtime),
+        ftp_upload_finished: new Date(eventData.metadata?.gcsfuse_mtime),
       }
     }]);
     callback();

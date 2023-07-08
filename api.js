@@ -4,10 +4,10 @@ const { writeToDatastore } = require("./helpers");
 
 // options = { method, path }
 function generateApiEndpoint(options) {
-  const {name, path, method} = options;
+  const {name, path, method, content_type} = options;
 
   return function({
-    body = null, // string or object
+    body, // string or object
     api_key,
     access_token,
     params = {},
@@ -27,7 +27,7 @@ function generateApiEndpoint(options) {
             'Authorization': `Bearer ${access_token}`,
             'X-Api-Key': api_key,
             'Content-Length': body.length,
-            'Content-Type': options.content_type,
+            'Content-Type': content_type,
           }
         },
         async function(response) {
@@ -46,7 +46,7 @@ function generateApiEndpoint(options) {
               data: {
                 endpoint: name,
                 catalog: params.catalog_id,
-                asset_id: uuid,
+                asset_id: params.uuid,
                 responseStatus: response.statusCode,
                 responseBody: responseData,
               }
@@ -65,7 +65,7 @@ function generateApiEndpoint(options) {
       // Handle string and stream request bodies
       // TK, do this outside
       if (typeof body == 'string') {
-        request.write(request_body);
+        request.write(body);
         request.end();
 
       } else if (body?.stream) {
@@ -97,6 +97,6 @@ exports.createAssetOriginal = generateApiEndpoint({
   path: (params) => {
     return `/v2/catalogs/${params.catalog_id}/assets/${params.uuid}/master`
   },
-  mathod: 'PUT',
+  method: 'PUT',
   content_type: 'application/octet-stream'
 });
